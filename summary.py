@@ -2,7 +2,7 @@ LIMIT = 300
 
 
 def select_sentences(sentences, scores):
-    original = " ".join(sentence.text for sentence in sentences)
+    original = "\n".join(sentence.text for sentence in sentences)
     if len(original) <= LIMIT:
         return original
 
@@ -20,7 +20,7 @@ def select_sentences(sentences, scores):
             remaining -= cost
 
     if selected:
-        return " ".join(sentences[index].text for index in sorted(selected))
+        return "\n".join(sentences[index].text for index in sorted(selected))
 
     text = sentences[ranked[0]].text
     fragment = text[:LIMIT - 1]
