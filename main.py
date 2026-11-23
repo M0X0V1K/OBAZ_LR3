@@ -8,11 +8,11 @@ from zipfile import BadZipFile, ZipFile
 import luhn
 import textrank
 from preprocessing import preprocess
-from query_parser import read_requests
 
 
 ROOT = Path(__file__).resolve().parent
 ALGORITHMS = {"luhn": luhn.summarize, "textrank": textrank.summarize}
+SUPPORTED_EXTENSIONS = {".txt", ".docx"}
 WORD_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 DOCX_TEXT = {WORD_NS + "tab": "\t", WORD_NS + "br": "\n", WORD_NS + "cr": "\n"}
 
@@ -41,41 +41,50 @@ def write_json(path, data):
     )
 
 
-def process_file(path, output_dir, summarize, input_format):
+def process_file(path, output_dir, summarize):
     source = read_document(path)
-    summaries = []
-    analysis = []
-    for texts, record in read_requests(source, input_format):
-        if record["status"] == "success":
-            start = len(summaries)
-            summaries.extend(summarize(preprocess(text)) for text in texts)
-            record["summary_indexes"] = list(range(start, len(summaries)))
-        analysis.append(record)
-
-    write_json(output_dir / f"{path.name}.summaries.json", summaries)
+    summary = summarize(preprocess(source))
+    analysis = [{
+        "query": source,
+        "start_line": 1,
+        "status": "success",
+        "tree": {"type": "document", "children": [{"type": "text", "value": source}]},
+        "summary_indexes": [0],
+    }]
+    write_json(output_dir / f"{path.name}.summaries.json", [summary])
     write_json(output_dir / f"{path.name}.analysis.json", analysis)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Реферирование документов из папки input.")
     parser.add_argument("algorithm", choices=ALGORITHMS, help="Алгоритм реферирования")
-    parser.add_argument(
-        "--format", choices=("auto", "text", "queries"), default="auto",
-        help="Формат содержимого. queries — JSON-массив строк в каждом запросе",
-    )
+    parser.add_argument("source", help="Имя файла с расширением или all для всех файлов")
     args = parser.parse_args()
     input_dir = ROOT / "input"
     output_dir = ROOT / "output"
     if not input_dir.is_dir():
         parser.error("Рядом с main.py должна быть папка input.")
 
+    if args.source == "all":
+        paths = sorted(
+            path for path in input_dir.iterdir()
+            if path.is_file() and path.suffix.lower() in SUPPORTED_EXTENSIONS
+        )
+    else:
+        path = input_dir / args.source
+        if Path(args.source).name != args.source:
+            parser.error("Укажите имя файла без пути.")
+        if not path.is_file():
+            parser.error(f"Файл «{args.source}» не найден в input.")
+        if path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+            parser.error("Поддерживаются файлы .txt и .docx.")
+        paths = [path]
+
     output_dir.mkdir(exist_ok=True)
     failed = False
-    for path in sorted(input_dir.iterdir()):
-        if not path.is_file() or path.suffix.lower() not in {".txt", ".docx"}:
-            continue
+    for path in paths:
         try:
-            process_file(path, output_dir, ALGORITHMS[args.algorithm], args.format)
+            process_file(path, output_dir, ALGORITHMS[args.algorithm])
         except (OSError, UnicodeError, BadZipFile, KeyError, ElementTree.ParseError) as error:
             print(f"{path.name}: {error}", file=sys.stderr)
             failed = True
